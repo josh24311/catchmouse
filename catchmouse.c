@@ -59,7 +59,6 @@ void game(cards* card, const int totalPlayerNum)
 int main(){
     int totalPlayerNum = -1;
     cards card[TotalCardsNum] = {0};
-
     initial_cards(card);
     // 測試輸出
     /*
@@ -68,7 +67,8 @@ int main(){
     }*/
 
     while(totalPlayerNum < MinPlayerNum || totalPlayerNum > MaxPlayerNum) {
-        printf("Input Total player numbers ( %d ~ %d): ", MinPlayerNum, MaxPlayerNum);
+        printf("Input Total player numbers ( %d ~ %d): \n", MinPlayerNum, MaxPlayerNum);
+        fflush(stdout);  // 強制刷新，確保輸出立即顯示
         scanf("%d", &totalPlayerNum);
     }
     printf("Total player numbers is : %d\n===== START THE GAME !!! ===== \n", totalPlayerNum);
