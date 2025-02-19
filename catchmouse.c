@@ -1,78 +1,100 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <time.h>
-#include <math.h>
-#include <assert.h>
 
-#define TotalSuitNum 12
-#define TotalCardsPerSuit 10
-#define TotalCardsNum (TotalSuitNum*TotalCardsPerSuit)
-#define MinPlayerNum 4
-#define MaxPlayerNum 8
+#define TOTAL_CARDS 120
+#define MIN_PLAYERS 4
+#define MAX_PLAYERS 8
+#define INITIAL_HAND 9  // 每位玩家起始手牌數
 
-typedef struct _cards {
-    int cardIndex;
-    int suitIndex;
-    int holdby;
-    char suit;
+typedef struct {
+    char suit;  // 花色 (A~L)
+    int value;  // 數值 (1~10)
+    int position;
+} Card;
 
-} cards;
+typedef struct {
+    Card card[INITIAL_HAND];
+    int gotpair[INITIAL_HAND];
+    int money;
+} Player;
 
-const char suitl[] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'};
-void initial_cards(cards* card)
-{
-    for(int i = 0; i < TotalCardsNum; i++) {
-        card[i].cardIndex = i;
-        card[i].suitIndex = i % TotalCardsPerSuit;
-        card[i].suit = suitl[i / TotalCardsPerSuit];
+void initializeDeck(Card deck[]) {
+    int index = 0;
+    for (char suit = 'A'; suit <= 'L'; suit++) {
+        for (int value = 1; value <= 10; value++) {
+            deck[index].suit = suit;
+            deck[index].value = value;
+            deck[index].position = -1;
+            index++;
+        }
     }
 }
 
-void shuffle(cards* deck) {
-    for (int i = TotalCardsNum - 1; i > 0; i--) {
-        int j = rand() % (i + 1);  // 產生 0 ~ i 之間的隨機數
-        // 交換 deck[i] 和 deck[j]
-        cards temp = deck[i];
+void initializePlayers(Player *players, const int numPlayers){
+    int i,j;
+    for(i = 0; i < numPlayers; i++) {
+        players[i].money = 1000;
+        for(j = 0; j < INITIAL_HAND; j++) {
+            players[i].gotpair[j] = 0;
+        }
+    }
+}
+
+void shuffleDeck(Card *deck) {
+    srand(time(NULL));
+    for (int i = TOTAL_CARDS - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        Card temp = deck[i];
         deck[i] = deck[j];
         deck[j] = temp;
     }
 }
 
-void printCards(cards* card)
-{
-    for (int i = 0; i < TotalCardsNum; i++) {
-        printf("Card %d: Suit %c, Index %d, suitIndex %d\n", i, card[i].suit, card[i].cardIndex, card[i].suitIndex);
+int dealCards(Card *deck, Player *players, const int numPlayers) {
+    int i, j, pivot = TOTAL_CARDS-1;
+
+    for(i = 0; i < numPlayers; i++) {
+        for(j = 0; j < INITIAL_HAND; j++) {
+            players[i].card[j] = deck[pivot--];
+        }
     }
+    return pivot+1;
 }
-void game(cards* card, const int totalPlayerNum)
-{
+void playCards(Card *deck, Player *players, const int numPlayers, int table_cards_num, int *cur_winner) {
+/*
+    player1 : ABACEDDGF   ->    AABCDDEFG
+    player2 : AAAHIJKLL
+
+*/
+}
+void playGame(Card *deck, Player *players, const int numPlayers) {
     int gameover = 0;
+    int table_cards_num = 0;
     int cur_winner = 0;
     while(!gameover) {
-        shuffle(card);
-        //printCards(card);
-        
-        gameover = 1;
+        shuffleDeck(deck);
+        table_cards_num = dealCards(deck, players, numPlayers);// 牌堆區 剩下幾張
+        playCards(deck, players, numPlayers, table_cards_num, &cur_winner);
     }
 }
-int main(){
-    int totalPlayerNum = -1;
-    cards card[TotalCardsNum] = {0};
-    initial_cards(card);
-    // 測試輸出
-    /*
-    for (int i = 0; i < 30; i++) {
-        printf("Card %d: Suit %c, Index %d, suitIndex %d\n", i, card[i].suit, card[i].cardIndex, card[i].suitIndex);
-    }*/
+int main() {
+    int numPlayers;
+    Card deck[TOTAL_CARDS];
 
-    while(totalPlayerNum < MinPlayerNum || totalPlayerNum > MaxPlayerNum) {
-        printf("Input Total player numbers ( %d ~ %d): \n", MinPlayerNum, MaxPlayerNum);
-        fflush(stdout);  // 強制刷新，確保輸出立即顯示
-        scanf("%d", &totalPlayerNum);
-    }
-    printf("Total player numbers is : %d\n===== START THE GAME !!! ===== \n", totalPlayerNum);
-    srand(time(NULL));
-    game(card, totalPlayerNum);
-
+    // 讓玩家輸入人數
+    do {
+        printf("請輸入參加者人數 (4~8): \n");
+        fflush(stdout);
+        scanf("%d", &numPlayers);
+    } while (numPlayers < MIN_PLAYERS || numPlayers > MAX_PLAYERS);
+    
+    Player *players = (Player *)malloc(numPlayers * sizeof(Player));
+    // 初始化、洗牌、發牌
+    initializeDeck(deck);
+    initializePlayers(players, numPlayers);
+    // 進入遊戲
+    playGame(deck, players, numPlayers);
+    free(players);
+    return 0;
 }
