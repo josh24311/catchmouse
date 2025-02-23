@@ -75,6 +75,7 @@ typedef struct {
 } Game;
 
 int isFirstTurn = 1;
+int total_turn = 0;
 
 // 初始化牌堆 (創建 120 張牌)
 void initializeDeck(Deck *deck) {
@@ -134,11 +135,11 @@ int checkGameStatus(Game *game) {
     int i;
     for(i = 0; i < game->numPlayers; i++) {
         if (game->players[i].money <= 0){
-            printf("[%d] Player \033[1;32m%d\033[0m  has NO MONEY!\n",__LINE__,i);
+            printf("[%d] Player \033[1;32m%d\033[0m  已破產!\n",__LINE__,i);
             return i+1;
         }
         if (game->players[i].money >= (game->numPlayers)*1000) {
-            printf("[%d] Player \033[1;32m%d\033[0m  has WON ALL  MONEY!\n",__LINE__,i);
+            printf("[%d] Player \033[1;32m%d\033[0m  贏光所有人的錢!\n",__LINE__,i);
             return i+1;
         }
     }
@@ -233,7 +234,7 @@ void updateNeedSuit(Game *game, char ssuit) {
                     printf("[%d] 排隊區總數 %d\n", __LINE__, game->players[currentIndex].lineup);
                     printf("[%d] 玩家 \033[1;32m%d\033[0m 移除  \033[1;31m%c \033[0m 且更新排隊區總數\n", __LINE__, currentIndex, ssuit);
                 }
-                printf("[%d] 玩家 \033[1;32m%d\033[0m 更新目標表格\n",__LINE__, currentIndex, ssuit);
+                printf("[%d] 玩家 \033[1;32m%d\033[0m 需湊對手牌:  ",__LINE__, currentIndex, ssuit);
                 for (j = 0; j < needSuitNum - 1; j++) {
                     if (j < game->players[currentIndex].lineup) {  
                         printf("\033[1;33m%c \033[0m", game->players[currentIndex].neededSuits[j]);  // 黃色
@@ -351,7 +352,7 @@ int strategy(Game *game, Card seenCard) {
                                 printf("[%d] 排隊區總數 %d\n", __LINE__, game->players[currentIndex].lineup);
                             }
                             
-                            printf("[%d] 玩家 \033[1;32m%d\033[0m 更新目標表格\n",__LINE__,currentIndex, seenCard.suit);
+                            printf("[%d] 玩家 \033[1;32m%d\033[0m 需湊對手牌:  ",__LINE__,currentIndex, seenCard.suit);
                             for (k = 0; k < needSuitNum - 1; k++) {
                                 if (k < game->players[currentIndex].lineup) {
                                     printf("\033[1;33m%c \033[0m", game->players[currentIndex].neededSuits[k]);  // 黃色
@@ -362,7 +363,7 @@ int strategy(Game *game, Card seenCard) {
                             printf("\n");
                         }
                         game->floatCard = chooseCard(game);
-                        printf("[%d] 玩家 \033[1;32m%d\033[0m 丟出 %c 成流動牌 !\n",__LINE__,game->currentPlayer, game->floatCard.suit);
+                        printf("[%d] 玩家 \033[1;32m%d\033[0m 丟出 \033[1;31m%c \033[0m 成流動牌 !\n",__LINE__,game->currentPlayer, game->floatCard.suit);
                         updateNeedSuit(game, game->floatCard.suit); // 丟牌之後再更新一次 NeedSuit
                         game->currentPlayer = (game->currentPlayer + 1)%(game->numPlayers);
                         printf("[%d] 轉換最優先玩家 %d\n", __LINE__, game->currentPlayer);
@@ -405,6 +406,7 @@ void playTurn(Game *game) {
     //game->players[currentPlayer].money = 0; //test
 
 }
+/*
 void givemoney(Game *game) {
     for (int i = 0; i < game->numPlayers; i++) {
         // 輸出每個玩家的當前金額以便調試
@@ -422,7 +424,32 @@ void givemoney(Game *game) {
         // 再次輸出以檢查金額變化
         printf("更新後, 玩家 %d 持有籌碼: %d\n", i, game->players[i].money);
     }
+}*/
+void givemoney(Game *game) {
+    // 输出表格的头部
+    printf("| 玩家 |    籌碼更新    |   獎金/賠款  |  結算後籌碼 |\n");
+    printf("|------|-----------------|--------------|-------------|\n");
+    
+    // 遍历所有玩家并更新金額
+    for (int i = 0; i < game->numPlayers; i++) {
+        int initialMoney = game->players[i].money;  // 儲存玩家原始金額
+        
+        // 計算金額變化
+        if (i == game->currentPlayer) {
+            int reward = (game->numPlayers - 1) * PASS_MONEY;
+            game->players[i].money += reward;
+            printf("| %4d | 獲勝 +%-13d | +%-11d | %6d |\n", i, reward, reward, game->players[i].money);
+        } else {
+            game->players[i].money -= PASS_MONEY;
+            printf("| %4d | 輸了 %-14d | -%-11d | %6d |\n", i, PASS_MONEY, PASS_MONEY, game->players[i].money);
+        }
+    }
+
+    // 输出表格的分隔线
+    printf("|------|-----------------|--------------|-------------|\n");
 }
+
+
 
 // 顯示遊戲狀態，顯示所有玩家的手牌和需要湊對的花色
 void displayGameState(Game *game) {
@@ -461,6 +488,7 @@ void playGame(Game *game) {
         displayGameState(game);
         isFirstTurn = 1;
         playTurn(game);
+        total_turn++;
         for (int i = 0; i < game->numPlayers; i++) {
             printf("Player %d initial money: %d\n", i, game->players[i].money);
         }
@@ -485,6 +513,6 @@ int main() {
     }
     playGame(&game);
 
-    printf("遊戲結束！\n");
+    printf("遊戲結束！ 共玩了 %d 輪\n",total_turn);
     return 0;
 }
