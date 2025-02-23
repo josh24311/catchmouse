@@ -1,4 +1,7 @@
 /*
+Author : josh24311
+Rule :
+
 1. 一副牌有120張卡, 共有12種花色(A~L), 每花色10張
 
 2. 讓使用者輸入要有幾個玩家(4~8人)
@@ -21,6 +24,7 @@
 	 iii. 若該牌與初始玩家手中需湊對牌任一花色不同, 則將該牌照順序交給其他玩家判斷是否需要湊對, (循環順序 1-2-3-0-1-2...)
 	 	甲. 若有人的排隊區需要該牌,則將該牌交給那個人, 湊對成功一樣更新該玩家需湊對牌(即消除該花色), 並另外從需湊對牌丟一張牌
 	 	乙. 若都沒有人需要該牌, 則當前玩家轉移為下一玩家, 繼續回到a
+        丙. 若有玩家洽需要那張牌即可完成湊對(胡牌), 則宣告該玩家勝利, 不再循環判斷給牌
 5. 局結束條件: 有人的需湊對牌以及他的排隊區都為空, 則此局該玩家勝利
 	a. 其他玩家給勝利玩家30元籌碼
 	b. 重新洗牌
@@ -29,8 +33,6 @@
 
 
 */
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -131,6 +133,7 @@ void initializeGame(Game *game, int numPlayers) {
     // 初始化牌堆
     initializeDeck(&game->deck);
 }
+
 int checkGameStatus(Game *game) {
     int i;
     for(i = 0; i < game->numPlayers; i++) {
@@ -145,6 +148,7 @@ int checkGameStatus(Game *game) {
     }
     return 0;
 }
+
 // 所有玩家整理手牌，記錄需要湊對的花色
 void organizeHand(Game *game) {
     for(int j = 0; j < game->numPlayers; j++) {
@@ -161,10 +165,12 @@ void organizeHand(Game *game) {
         game->players[j].neededSuits[neededIndex] = '\0'; // 以 '\0' 結尾
     }
 }
+
 // 抽牌
 Card drawCard(Game *game) {
     return game->deck.cards[game->deck.topIndex++];
 }
+
 int checkTurnStatus(Game *game) {
     for(int i = 0; i < game->numPlayers; i++) {
         int currentIndex = (i+game->currentPlayer)%game->numPlayers;
@@ -177,7 +183,6 @@ int checkTurnStatus(Game *game) {
             return currentIndex + 1;
         }
     }
-    //printf("[%d] currentPlayer %d NOT win yet!\n",__LINE__, game->currentPlayer);
     return 0;
 }
 
@@ -187,7 +192,6 @@ Card chooseCard(Game *game) {
     if (len == 0) {
         return game->players[game->currentPlayer].hand[rand() % INITIAL_HAND];
     }
-
     // 隨機選擇 neededSuits 內的一個花色
     int choose_index;
     choose_index = (game->players[game->currentPlayer].lineup > 0)? 0:(rand() % len);
@@ -199,7 +203,6 @@ Card chooseCard(Game *game) {
             return game->players[game->currentPlayer].hand[i];
         }
     }
-
     // 照理來說不會執行到這裡，因為 neededSuits 是從 hand 建構出來的
     return game->players[game->currentPlayer].hand[0];  
 }
@@ -282,7 +285,6 @@ int strategy(Game *game, Card seenCard) {
                         } else {
                             printf("%c ", game->players[game->currentPlayer].neededSuits[j]);
                         }
-                        
                     }
                     printf("\n");
                 }
@@ -406,25 +408,7 @@ void playTurn(Game *game) {
     //game->players[currentPlayer].money = 0; //test
 
 }
-/*
-void givemoney(Game *game) {
-    for (int i = 0; i < game->numPlayers; i++) {
-        // 輸出每個玩家的當前金額以便調試
-        printf("更新前, 玩家 %d 持有籌碼: %d\n", i, game->players[i].money);
-        
-        if (i == game->currentPlayer) {
-            int reward = (game->numPlayers - 1) * PASS_MONEY;
-            game->players[i].money += reward;
-            printf("玩家 %d 獲勝! 賺取 +%d, 結算: %d\n", i, reward, game->players[i].money);
-        } else {
-            game->players[i].money -= PASS_MONEY;
-            printf("玩家 %d 輸了 %d, 結算: %d\n", i, PASS_MONEY, game->players[i].money);
-        }
 
-        // 再次輸出以檢查金額變化
-        printf("更新後, 玩家 %d 持有籌碼: %d\n", i, game->players[i].money);
-    }
-}*/
 void givemoney(Game *game) {
     // 输出表格的头部
     printf("| 玩家 |    籌碼更新    |   獎金/賠款  |  結算後籌碼 |\n");
@@ -448,8 +432,6 @@ void givemoney(Game *game) {
     // 输出表格的分隔线
     printf("|------|-----------------|--------------|-------------|\n");
 }
-
-
 
 // 顯示遊戲狀態，顯示所有玩家的手牌和需要湊對的花色
 void displayGameState(Game *game) {
@@ -497,19 +479,18 @@ void playGame(Game *game) {
     }
 }
 
-
 int main() {
     Game game;
     int numPlayers;
     srand(time(NULL));
-    printf("\n\n ===== GAME START ===== \n\n");
+    printf("\n\n ===== 遊戲開始 ===== \n\n");
     printf("請輸入玩家數 (%d-%d): ", MIN_PLAYERS, MAX_PLAYERS);
     fflush(stdout);
     scanf("%d", &numPlayers);
 
     initializeGame(&game, numPlayers);
     for (int i = 0; i < game.numPlayers; i++) {
-        printf("Player %d initial money: %d\n", i, game.players[i].money);
+        printf("Player %d 初始籌碼: %d\n", i, game.players[i].money);
     }
     playGame(&game);
 
