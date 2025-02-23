@@ -1,162 +1,477 @@
+/*
+1. 一副牌有120張卡, 共有12種花色(A~L), 每花色10張
+
+2. 讓使用者輸入要有幾個玩家(4~8人)
+
+3. 初始玩家狀態:
+	a. 每個玩家有1000元籌碼
+	b. 每個玩家最多拿9張手牌
+
+3. 初始遊戲: 
+	a. default 初始玩家為player 0 ,(假設共有4個玩家, 則依序為player 0~ 3)
+	b. 洗牌 : 120張牌重新洗牌
+	c. 發牌 : 每個玩家發9張初始手牌
+	
+4. 整理手牌:
+	a. 每個玩家整理手上持有的牌, 若為成對花色,則視為不再需要, ex: player0初始手牌 AAABBCDEF, 則該玩家仍需要A,C,D,E,F才能湊對(稱為需湊對牌)
+4. 判斷牌的流向 : 每個玩家都看得到其他玩家從牌堆抽出來的牌
+	a. 初始玩家抽牌, 揭曉其花色
+	 i.  所有人將其需湊對牌中對應該花色的牌丟到自方"排隊區" 排隊等待湊對
+	 ii.  初始玩家判斷若該牌與其手中需湊對牌任一花色相同,則湊對成功,更新該玩家需湊對牌(即消除該花色), 並另外從需湊對牌丟一張牌
+	 iii. 若該牌與初始玩家手中需湊對牌任一花色不同, 則將該牌照順序交給其他玩家判斷是否需要湊對, (循環順序 1-2-3-0-1-2...)
+	 	甲. 若有人的排隊區需要該牌,則將該牌交給那個人, 湊對成功一樣更新該玩家需湊對牌(即消除該花色), 並另外從需湊對牌丟一張牌
+	 	乙. 若都沒有人需要該牌, 則當前玩家轉移為下一玩家, 繼續回到a
+5. 局結束條件: 有人的需湊對牌以及他的排隊區都為空, 則此局該玩家勝利
+	a. 其他玩家給勝利玩家30元籌碼
+	b. 重新洗牌
+	c. 勝利玩家為新一輪起始玩家
+6. 遊戲結束條件 : 任一玩家籌碼 <= 0元
+
+
+*/
+
+
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
-#define TOTAL_SUIT 12
-#define CARDS_PERSUIT 10
-#define TOTAL_CARDS 120
-#define MIN_PLAYERS 4
-#define MAX_PLAYERS 8
-#define INITIAL_HAND 9  // 每位玩家起始手牌數
+// 遊戲相關常數
+#define TOTAL_SUIT 12       // 12 種花色 (A~L)
+#define CARDS_PERSUIT 10    // 每種花色有 10 張
+#define TOTAL_CARDS 120     // 總共 120 張牌
+#define MIN_PLAYERS 4       // 最少 4 名玩家
+#define MAX_PLAYERS 8       // 最多 8 名玩家
+#define INITIAL_HAND 9      // 每位玩家初始手牌數
+#define INITIAL_MONEY 1000  // 玩家初始金額
 
-const char SUITS[TOTAL_SUIT] = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'};
-
+// 定義卡牌結構
 typedef struct {
     char suit;  // 花色 (A~L)
-    int value;  // 數值 (1~10)
-    int position;
 } Card;
 
+// 定義玩家結構
 typedef struct {
-    Card card[INITIAL_HAND];
-    int gotpair[INITIAL_HAND];
-    char lookfor[INITIAL_HAND];
-    int money;
+    Card hand[INITIAL_HAND]; // 玩家手牌
+    int money;               // 玩家金錢
+    char neededSuits[TOTAL_SUIT]; // 需要湊對的花色
+    int lineup;
 } Player;
 
-void initializeDeck(Card deck[]) {
+// 定義牌堆結構
+typedef struct {
+    Card cards[TOTAL_CARDS]; // 120 張牌
+    int topIndex;            // 當前發牌位置
+} Deck;
+
+// 定義遊戲結構
+typedef struct {
+    Player players[MAX_PLAYERS]; // 最多 8 名玩家
+    Deck deck;                   // 牌堆
+    int currentPlayer;            // 當前玩家索引
+    int numPlayers;               // 遊戲玩家數
+    Card floatCard;
+} Game;
+
+int isFirstTurn = 1;
+
+// 初始化牌堆 (創建 120 張牌)
+void initializeDeck(Deck *deck) {
+    char suits[TOTAL_SUIT] = "ABCDEFGHIJKL"; // 12 種花色
     int index = 0;
-    for (char suit = 'A'; suit <= 'L'; suit++) {
-        for (int value = 1; value <= 10; value++) {
-            deck[index].suit = suit;
-            deck[index].value = value;
-            deck[index].position = -1;
+
+    for (int i = 0; i < TOTAL_SUIT; i++) {
+        for (int j = 0; j < CARDS_PERSUIT; j++) {
+            deck->cards[index].suit = suits[i];
             index++;
         }
     }
 }
 
-void initializePlayers(Player *players, const int numPlayers){
-    int i,j;
-    for(i = 0; i < numPlayers; i++) {
-        players[i].money = 1000;
-        memset(players[i].gotpair, 0, sizeof(players[i].gotpair));
-        memset(players[i].lookfor, 0, sizeof(players[i].lookfor));
-    }
-}
-
-void shuffleDeck(Card *deck) {
-    srand(time(NULL));
+// 洗牌
+void shuffleDeck(Deck *deck) {
     for (int i = TOTAL_CARDS - 1; i > 0; i--) {
         int j = rand() % (i + 1);
-        Card temp = deck[i];
-        deck[i] = deck[j];
-        deck[j] = temp;
+        Card temp = deck->cards[i];
+        deck->cards[i] = deck->cards[j];
+        deck->cards[j] = temp;
     }
+    deck->topIndex = 0;
 }
 
-int dealCards(Card *deck, Player *players, const int numPlayers) {
-    int i, j, pivot = TOTAL_CARDS-1;
-
-    for(i = 0; i < numPlayers; i++) {
-        for(j = 0; j < INITIAL_HAND; j++) {
-            players[i].card[j] = deck[pivot--];
+// 發牌
+void dealCards(Game *game) {
+    for (int i = 0; i < game->numPlayers; i++) {
+        memset(game->players[i].neededSuits, 0, sizeof(game->players[i].neededSuits));
+        game->players[i].lineup = 0;
+        for (int j = 0; j < INITIAL_HAND; j++) {
+            if (game->deck.topIndex + INITIAL_HAND <= TOTAL_CARDS) {
+                game->players[i].hand[j] = game->deck.cards[game->deck.topIndex++];
+            }
         }
     }
-    return pivot+1;
 }
-int playerWant(char *lookfor, const char cur_card_suit) { 
-    int i, j;
-    for (i = 0; lookfor[i] != '\0'; i++) {
-        if (lookfor[i] == cur_card_suit) {
-            // 移動字串內容，刪除該字母
-            for (j = i; lookfor[j] != '\0'; j++) {
-                lookfor[j] = lookfor[j + 1];
-            }
-            return 1;
+
+// 初始化遊戲
+void initializeGame(Game *game, int numPlayers) {
+    if (numPlayers < MIN_PLAYERS || numPlayers > MAX_PLAYERS) {
+        printf("玩家數必須在 %d 到 %d 之間！\n", MIN_PLAYERS, MAX_PLAYERS);
+        exit(1);
+    }
+
+    game->numPlayers = numPlayers;
+    game->currentPlayer = 0; // 預設 0 號玩家開始
+
+    // 初始化玩家
+    for (int i = 0; i < numPlayers; i++) {
+        game->players[i].money = INITIAL_MONEY;
+    }
+    // 初始化牌堆
+    initializeDeck(&game->deck);
+}
+int checkGameStatus(Game *game) {
+    int i;
+    for(i = 0; i < game->numPlayers; i++) {
+        if (game->players[i].money <= 0){
+            printf("[%d] Player \033[1;32m%d\033[0m  has NO MONEY!\n",__LINE__,i);
+            return i+1;
+        }
+        if (game->players[i].money >= (game->numPlayers)*1000) {
+            printf("[%d] Player \033[1;32m%d\033[0m  has WON ALL  MONEY!\n",__LINE__,i);
+            return i+1;
         }
     }
     return 0;
 }
-
-void playCards(Card *deck, Player *players, const int numPlayers, int table_cards_num, int *cur_winner) {
-/*
-    player1 : ABACEDDGF   ->    [1,0,1,0,0,1,1,0,0] -> look B C E G F
-    player2 : CAAAHIKLL
-
-*/
-    int suit_exist[TOTAL_SUIT];
-    int round_over = 0, i, j , cur_player, card_index;
-    cur_player = *cur_winner;
-    card_index = table_cards_num - 1;
-    char cur_card_suit;
-    while(!round_over) {
-        // check pair
-        for (j = 0; j < numPlayers; j++) {
-            int xor_result = 0;
-            for(i = 0; i < INITIAL_HAND; i++) {
-                xor_result ^= (1 << (players[j].card[i].suit - 'A'));//xor_result 會剩下不成對的那些子母對應位元
+// 所有玩家整理手牌，記錄需要湊對的花色
+void organizeHand(Game *game) {
+    for(int j = 0; j < game->numPlayers; j++) {
+        int suitCount[TOTAL_SUIT] = {0}; // 記錄每種花色的數量
+        for (int i = 0; i < INITIAL_HAND; i++) {
+            suitCount[game->players[j].hand[i].suit - 'A']++;
+        }
+        int neededIndex = 0;
+        for (int i = 0; i < TOTAL_SUIT; i++) {
+            if (suitCount[i] % 2 == 1) { // 若該花色出現奇數次，表示仍需湊對
+                game->players[j].neededSuits[neededIndex++] = 'A' + i;
             }
-            int lookfor_index = 0;
-            for (i = 0; i < TOTAL_SUIT; i++) {
-                if (xor_result & (1 << i)) {
-                    players[j].lookfor[lookfor_index++] = 'A' + i;
+        }
+        game->players[j].neededSuits[neededIndex] = '\0'; // 以 '\0' 結尾
+    }
+}
+// 抽牌
+Card drawCard(Game *game) {
+    return game->deck.cards[game->deck.topIndex++];
+}
+int checkTurnStatus(Game *game) {
+    for(int i = 0; i < game->numPlayers; i++) {
+        if (game->players[(i+game->currentPlayer)%game->numPlayers].neededSuits[0] == '\0') {
+            printf("[%d] currentPlayer %d HAS NO neededSuits!\n",__LINE__, game->currentPlayer);
+            return ((i+game->currentPlayer)%game->numPlayers) + 1;
+        }
+    }
+    //printf("[%d] currentPlayer %d NOT win yet!\n",__LINE__, game->currentPlayer);
+    return 0;
+}
+
+Card chooseCard(Game *game) {
+    int len = strlen(game->players[game->currentPlayer].neededSuits);
+    
+    // 確保 neededSuits 非空
+    if (len == 0) {
+        return game->players[game->currentPlayer].hand[rand() % INITIAL_HAND];
+    }
+
+    // 隨機選擇 neededSuits 內的一個花色
+    int choose_index = rand() % len;
+    char target_suit = game->players[game->currentPlayer].neededSuits[choose_index];
+
+    // 在手牌中尋找該花色的牌
+    for (int i = 0; i < INITIAL_HAND; i++) {
+        if (game->players[game->currentPlayer].hand[i].suit == target_suit) {
+            return game->players[game->currentPlayer].hand[i];
+        }
+    }
+
+    // 照理來說不會執行到這裡，因為 neededSuits 是從 hand 建構出來的
+    return game->players[game->currentPlayer].hand[0];  
+}
+void updateNeedSuit(Game *game, char ssuit) {
+    int needSuitNum, i, j, k, gotNeed = 0;
+    int currentIndex = game->currentPlayer;
+    needSuitNum = strlen(game->players[currentIndex].neededSuits);
+    if (needSuitNum == 0) {
+        printf("[%d]currentPlayer \033[1;32m%d\033[0m HAS NO neededSuits!\n",__LINE__, game->currentPlayer);
+        return;
+    }
+    for (i = 0; i < needSuitNum; i++) {
+        if (ssuit == game->players[currentIndex].neededSuits[i]) {
+            gotNeed = 1;
+            printf("[%d] Player \033[1;32m%d\033[0m set suit \033[1;31m%c \033[0m as FOUND !\n",__LINE__,currentIndex, ssuit);
+            if (needSuitNum == 1) {
+                game->players[currentIndex].neededSuits[0] = '\0'; // 直接清空
+                printf("[%d] Player \033[1;32m%d\033[0m got last neededSuits!\n",__LINE__,currentIndex);
+                return; 
+            } else {
+                printf("[%d] Player \033[1;32m%d\033[0m MOVE OUT \033[1;31m%c \033[0m\n",__LINE__,currentIndex, ssuit);
+                for (j = i; j < needSuitNum - 1; j++) {
+                    game->players[currentIndex].neededSuits[j] = game->players[currentIndex].neededSuits[j + 1];
+                }
+                game->players[currentIndex].neededSuits[j] = '\0'; // 設置結尾
+                // 检查是否需要减少 lineup
+
+                // 如果该花色在 lineup 内，则减少 lineup
+                if (i < game->players[currentIndex].lineup) {
+                    printf("[%d] 此牌已經在排隊區, 縮短 lineup\n", __LINE__);
+                    game->players[currentIndex].lineup -= 1;
+                    printf("[%d] Player \033[1;32m%d\033[0m updated lineup after removing suit \033[1;31m%c \033[0m\n", __LINE__, currentIndex, ssuit);
+                }
+                printf("[%d] Player \033[1;32m%d\033[0m UPDATE neededSuits table\n",__LINE__, currentIndex, ssuit);
+                for (j = 0; j < needSuitNum - 1; j++) {
+                    if (i < game->players[currentIndex].lineup) {  
+                        printf("\033[1;33m%c \033[0m", game->players[currentIndex].neededSuits[j]);  // 黃色
+                    } else {
+                        printf("%c ", game->players[currentIndex].neededSuits[j]);
+                    }
+                    
+                }
+                printf("\n");
+            }
+            break;
+        }
+    }
+}
+int strategy(Game *game, Card seenCard) {
+    int i,j,k,needSuitNum, gotNeed = 0;
+    printf("[%d] current_player: \033[1;32m%d\033[0m, seenCard SUIT \033[1;31m%c \033[0m\n",__LINE__,game->currentPlayer, seenCard.suit);
+    if (isFirstTurn) {
+        //updateAndThrow logic
+        needSuitNum = strlen(game->players[game->currentPlayer].neededSuits);
+        if (needSuitNum == 0) {
+            printf("[%d]currentPlayer \033[1;32m%d\033[0m HAS NO neededSuits!\n",__LINE__, game->currentPlayer);
+            return checkTurnStatus(game);
+        }
+        for (i = 0; i < needSuitNum; i++) {
+            if (seenCard.suit == game->players[game->currentPlayer].neededSuits[i]) {
+                gotNeed = 1;
+                printf("[%d] currentPlayer \033[1;32m%d\033[0m set suit %c as FOUND !\n",__LINE__,game->currentPlayer, seenCard.suit);
+                // 若只剩一個花色，不需要移動，直接清空
+                if (needSuitNum == 1) {
+                    game->players[game->currentPlayer].neededSuits[0] = '\0'; // 直接清空
+                    printf("[%d] currentPlayer \033[1;32m%d\033[0m got last neededSuits!\n",__LINE__,game->currentPlayer);
+                    return game->currentPlayer + 1;
+                } else {
+                    printf("[%d] Player \033[1;32m%d\033[0m MOVE OUT %c\n",__LINE__,game->currentPlayer, seenCard.suit);
+                    // 若有多個花色，移動後面的元素
+                    for (j = i; j < needSuitNum - 1; j++) {
+                        game->players[game->currentPlayer].neededSuits[j] = game->players[game->currentPlayer].neededSuits[j + 1];
+                    }
+                    game->players[game->currentPlayer].neededSuits[j] = '\0'; // 設置結尾
+                    printf("[%d] Player \033[1;32m%d\033[0m UPDATE neededSuits table\n",__LINE__,game->currentPlayer, seenCard.suit);
+                    for (j = 0; j < needSuitNum - 1; j++) {
+                        if (j < game->players[game->currentPlayer].lineup) {
+                            printf("\033[1;33m%c \033[0m", game->players[game->currentPlayer].neededSuits[j]);  // 黃色
+                        } else {
+                            printf("%c ", game->players[game->currentPlayer].neededSuits[j]);
+                        }
+                        
+                    }
+                    printf("\n");
+                }
+                break; // 一旦處理完就結束循環
+            }
+        }
+        //throwCard
+        game->floatCard = gotNeed ? chooseCard(game) : seenCard;
+        printf("[%d] currentPlayer \033[1;32m%d\033[0m throw \033[1;31m%c \033[0m to float !\n",__LINE__,game->currentPlayer, game->floatCard.suit);
+        updateNeedSuit(game, game->floatCard.suit); // 丟牌之後再更新一次 NeedSuit
+        return checkTurnStatus(game);
+    } else {
+        /*Not 1st run logic*/
+        gotNeed = 0;
+        for(i = 0; i < game->numPlayers; i++) {
+            needSuitNum = strlen(game->players[i].neededSuits);
+            for (j = 0; j < needSuitNum; j++) {
+                if (seenCard.suit == game->players[i].neededSuits[j]) {
+                    gotNeed = 1;
+                    char tmp = game->players[i].neededSuits[j];
+                    game->players[i].neededSuits[j] = game->players[i].neededSuits[game->players[i].lineup];
+                    game->players[i].neededSuits[game->players[i].lineup] = tmp;
+                    game->players[i].lineup += 1;
+                    break;
                 }
             }
-            players[j].lookfor[lookfor_index] = '\0';  // 以 '\0' 結尾，標記字串結束
         }
-        // draw card
-        cur_card_suit = deck[card_index--].suit;
-        // check who want
-        int check;
-        for (check = 0; check < numPlayers; check++) {
-            int player_index = (cur_player + check) % numPlayers; 
-            if (playerWant(players[player_index].lookfor, cur_card_suit)) {
-                printf("Player %d wants and takes card %c\n", player_index, cur_card_suit);
-                break;  // 一旦有玩家拿走，這張牌就不再流通
+        for(i = 0; i < game->numPlayers; i++) { //\033[1;33m%c \033[0m
+            printf("[%d] Player \033[1;32m%d\033[0m lineup_list: ",__LINE__,i);
+            for(j = 0; j < game->players[i].lineup; j++) {
+                printf(" \033[1;33m%c \033[0m",game->players[i].neededSuits[j]);
             }
+            printf("\n");
+        }
+        // 如果至少有一位玩家配對成功
+        if (gotNeed) {
+            printf("[%d] Someone needs \033[1;31m%c \033[0m\n",__LINE__,seenCard.suit);
+            // 循環中找出第一個配對成功的玩家，並更新當前玩家
+            for(i = 0; i < game->numPlayers; i++) {
+                int currentIndex = (game->currentPlayer + i) % game->numPlayers;
+                needSuitNum = strlen(game->players[currentIndex].neededSuits);
+                for (j = 0; j < needSuitNum; j++) {
+                    if (game->players[currentIndex].neededSuits[j] == seenCard.suit) {
+                        printf("[%d] Player \033[1;32m%d\033[0m needs \033[1;31m%c \033[0m\n",__LINE__,currentIndex, seenCard.suit);
+                        // 配對成功，更新 currentPlayer 並選擇卡片
+                        printf("[%d] Update currentPlayer as %d\n",__LINE__,currentIndex);
+                        game->currentPlayer = currentIndex;
+                        if (needSuitNum == 1) {
+                            printf("[%d] currentPlayer \033[1;32m%d\033[0m got last neededSuits!\n",__LINE__,game->currentPlayer);
+                            game->players[currentIndex].neededSuits[0] = '\0'; // 直接清空
+                            return currentIndex + 1;
+                        } else {
+                            printf("[%d] Player \033[1;32m%d\033[0m MOVE OUT \033[1;31m%c \033[0m\n",__LINE__,currentIndex, seenCard.suit);
+                            // 若有多個花色，移動後面的元素
+                            for (k = j; k < needSuitNum - 1; k++) {
+                                game->players[currentIndex].neededSuits[k] = game->players[currentIndex].neededSuits[k + 1];
+                            }
+                            game->players[currentIndex].neededSuits[k] = '\0'; // 設置結尾
+                            if (j < game->players[currentIndex].lineup) {
+                                printf("[%d] 此牌已經在排隊區, 縮短 lineup\n", __LINE__);
+                                game->players[currentIndex].lineup-=1;
+                            }
+                            
+                            printf("[%d] Player \033[1;32m%d\033[0m UPDATE neededSuits table\n",__LINE__,currentIndex, seenCard.suit);
+                            for (k = 0; k < needSuitNum - 1; k++) {
+                                if (k < game->players[currentIndex].lineup) {
+                                    printf("\033[1;33m%c \033[0m", game->players[currentIndex].neededSuits[k]);  // 黃色
+                                } else {
+                                    printf("%c ", game->players[currentIndex].neededSuits[k]);
+                                }
+                            }
+                            printf("\n");
+                        }
+                        game->floatCard = chooseCard(game);
+                        printf("[%d] currentPlayer \033[1;32m%d\033[0m throw %c to float !\n",__LINE__,game->currentPlayer, game->floatCard.suit);
+                        updateNeedSuit(game, game->floatCard.suit); // 丟牌之後再更新一次 NeedSuit
+                        game->currentPlayer = (game->currentPlayer + 1)%(game->numPlayers);
+                        printf("[%d] Switch next player to %d\n", __LINE__, game->currentPlayer);
+                        return checkTurnStatus(game);  // 結束回合，檢查回合狀態
+                    }
+                }
+            }
+        } else {
+            // 如果沒有配對成功，則抽一張新卡並交給下一位玩家
+            printf("[%d] NO ONE needs %c !!\n", __LINE__, seenCard.suit);
+            game->floatCard = drawCard(game);
+            printf("[%d] Player \033[1;32m%d\033[0m draw \033[1;36m%c \033[0m to float , current deck num: %d\n", __LINE__, game->currentPlayer,game->floatCard.suit, game->deck.topIndex);
+            game->currentPlayer = (game->currentPlayer + 1) % game->numPlayers;
+            printf("[%d] Switch next player to \033[1;32m%d\033[0m\n", __LINE__, game->currentPlayer);
+        }
+    }
+    return checkTurnStatus(game);
+}
+
+void playTurn(Game *game) {
+    int currentPlayer = game->currentPlayer;
+    int turnover = 0;
+    Card drawnCard;
+
+    if (isFirstTurn) {
+        drawnCard = drawCard(game);
+        printf("首輪, 玩家 \033[1;32m%d\033[0m 抽到 \033[1;36m%c \033[0m 牌,current deck num: %d\n", currentPlayer, drawnCard.suit, game->deck.topIndex);
+        turnover = strategy(game, drawnCard);
+        printf("[%d] Is Gameover ? %s\n", __LINE__, (turnover>0)? "Yes":"No");
+        game->currentPlayer = (game->currentPlayer + 1)%(game->numPlayers);
+        printf("[%d] Switch next player to \033[1;32m%d\033[0m\n", __LINE__, game->currentPlayer);
+        isFirstTurn = 0;
+    }
+    while(!turnover) {
+        printf("[%d] Next turn start\n", __LINE__);
+        turnover = strategy(game, game->floatCard);
+    }
+    printf("[%d] Player %d win this turn !\n", __LINE__, turnover-1);
+    game->currentPlayer =  turnover-1;
+    //game->players[currentPlayer].money = 0; //test
+
+}
+void givemoney(Game *game) {
+    for (int i = 0; i < game->numPlayers; i++) {
+        // 輸出每個玩家的當前金額以便調試
+        printf("Before updating, Player %d money: %d\n", i, game->players[i].money);
+        
+        if (i == game->currentPlayer) {
+            int reward = (game->numPlayers - 1) * 80;
+            game->players[i].money += reward;
+            printf("Player %d wins! Money +%d, New Balance: %d\n", i, reward, game->players[i].money);
+        } else {
+            game->players[i].money -= 80;
+            printf("Player %d loses 80, New Balance: %d\n", i, game->players[i].money);
         }
 
+        // 再次輸出以檢查金額變化
+        printf("After updating, Player %d money: %d\n", i, game->players[i].money);
     }
+}
 
-}
-int checkPlayerStatus(Player *players, const int numPlayers) {
-    int i;
-    for(i = 0; i < numPlayers; i++) {
-        if (players[i].money <= 0)
-            return (i+1);
+// 顯示遊戲狀態，顯示所有玩家的手牌和需要湊對的花色
+void displayGameState(Game *game) {
+    for (int i = 0; i < game->numPlayers; i++) {
+        printf("玩家 %d 的手牌: ", i);
+        // 顯示玩家的手牌
+        for (int j = 0; j < INITIAL_HAND; j++) {
+            printf("%c ", game->players[i].hand[j].suit);
+        }
+        printf("\n");
+        //printf("玩家 %d 正在排隊花色張數: %d\n", i, game->players[i].lineup);
+        printf("玩家 %d 需要湊對的花色: ", i);
+        // 顯示玩家需要湊對的花色
+        if (game->players[i].neededSuits[0] != '\0') {
+            for (int k = 0; game->players[i].neededSuits[k] != '\0'; k++) {
+                printf("\033[1;35m%c\033[0m ", game->players[i].neededSuits[k]);
+            }
+        } else {
+            printf("無需湊對");
+        }
+        printf("\n");
     }
-    return 0;
 }
-void playGame(Card *deck, Player *players, const int numPlayers) {
-    int gameover = 0;
-    int table_cards_num = 0;
-    int cur_winner = 0;
-    while(!gameover) {
-        shuffleDeck(deck);
-        table_cards_num = dealCards(deck, players, numPlayers);// 牌堆區 剩下幾張
-        playCards(deck, players, numPlayers, table_cards_num, &cur_winner);
-        gameover = checkPlayerStatus(players, numPlayers);
+void displayMoney(Game *game) {
+    printf("\n===== 玩家籌碼狀態 =====\n");
+    for (int i = 0; i < game->numPlayers; i++) {
+        printf("玩家 %d: \033[1;32m%d\033[0m 元\n", i, game->players[i].money); // 亮綠色顯示籌碼
     }
-    printf("Player %d already bankrupt , GAMEOVER\n", gameover);
+    printf("========================\n\n");
 }
+void playGame(Game *game) {
+    while (!checkGameStatus(game)) {
+        shuffleDeck(&game->deck);
+        dealCards(game);
+        organizeHand(game);
+        displayGameState(game);
+        isFirstTurn = 1;
+        playTurn(game);
+        for (int i = 0; i < game->numPlayers; i++) {
+            printf("Player %d initial money: %d\n", i, game->players[i].money);
+        }
+        givemoney(game);
+        displayMoney(game);
+    }
+}
+
+
 int main() {
+    Game game;
     int numPlayers;
-    Card deck[TOTAL_CARDS];
+    srand(time(NULL));
+    printf("\n\n ===== GAME START ===== \n\n");
+    printf("請輸入玩家數 (%d-%d): ", MIN_PLAYERS, MAX_PLAYERS);
+    fflush(stdout);
+    scanf("%d", &numPlayers);
 
-    // 讓玩家輸入人數
-    do {
-        printf("請輸入參加者人數 (4~8): \n");
-        fflush(stdout);
-        scanf("%d", &numPlayers);
-    } while (numPlayers < MIN_PLAYERS || numPlayers > MAX_PLAYERS);
-    
-    Player *players = (Player *)malloc(numPlayers * sizeof(Player));
-    // 初始化、洗牌、發牌
-    initializeDeck(deck);
-    initializePlayers(players, numPlayers);
-    // 進入遊戲
-    playGame(deck, players, numPlayers);
-    free(players);
+    initializeGame(&game, numPlayers);
+    for (int i = 0; i < game.numPlayers; i++) {
+        printf("Player %d initial money: %d\n", i, game.players[i].money);
+    }
+    playGame(&game);
+
+    printf("遊戲結束！\n");
     return 0;
 }
